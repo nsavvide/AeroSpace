@@ -55,6 +55,7 @@ struct ReloadConfigResult {
         configUrl = result.configUrl
         try await activateMode(activeMode)
         syncStartAtLogin()
+        installFocusFollowsMouseMonitor()
         syncConfigFileWatcher()
     }
 
