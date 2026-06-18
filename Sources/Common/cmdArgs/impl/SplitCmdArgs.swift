@@ -14,7 +14,7 @@ public struct SplitCmdArgs: CmdArgs {
     public var arg: Lateinit<SplitArg> = .uninitialized
 
     public enum SplitArg: String, CaseIterable, Sendable {
-        case horizontal, vertical, opposite
+        case horizontal, vertical, opposite, auto
     }
 }
 

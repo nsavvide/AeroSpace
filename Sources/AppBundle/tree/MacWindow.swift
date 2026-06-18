@@ -86,20 +86,30 @@ final class MacWindow: Window {
         if let deadWindowWorkspace, deadWindowWorkspace == focus.workspace ||
             deadWindowWorkspace == prevFocusedWorkspace && prevFocusedWorkspaceDate.distance(to: .now) < 1
         {
+            let deadWindowFocus: LiveFocus?
             switch parent.cases {
-                case .tilingContainer, .floatingWindowsContainer, .macosHiddenAppsWindowsContainer, .macosFullscreenWindowsContainer:
-                    let deadWindowFocus = deadWindowWorkspace.toLiveFocus()
-                    _ = setFocus(to: deadWindowFocus)
-                    // Guard against "Apple Reminders popup" bug: https://github.com/nikitabobko/AeroSpace/issues/201
-                    if focus.windowOrNil?.app.pid != app.pid {
-                        // Force focus to fix macOS annoyance with focused apps without windows.
-                        //   https://github.com/nikitabobko/AeroSpace/issues/65
-                        deadWindowFocus.windowOrNil?.nativeFocus()
-                    }
+                case .tilingContainer(let container):
+                    // Prefer the closed window's local neighbour (the sibling subtree that
+                    // expands into the freed space) over the workspace-global MRU. In a deep
+                    // (spiral) tree the global MRU can live in a far branch, so focusing it
+                    // feels like a random jump. Fall back to the workspace MRU if the dead
+                    // window's container is now empty.
+                    deadWindowFocus = container.mostRecentWindowRecursive?.toLiveFocusOrNil() ?? deadWindowWorkspace.toLiveFocus()
+                case .floatingWindowsContainer, .macosHiddenAppsWindowsContainer, .macosFullscreenWindowsContainer:
+                    deadWindowFocus = deadWindowWorkspace.toLiveFocus()
                 case .macosPopupWindowsContainer, // Don't switch back on popup destruction
                      .workspace, // Workspace is invalid parent for windows
                      .macosMinimizedWindowsContainer: // Don't switch back on minimized windows destruction
-                    break
+                    deadWindowFocus = nil
+            }
+            if let deadWindowFocus {
+                _ = setFocus(to: deadWindowFocus)
+                // Guard against "Apple Reminders popup" bug: https://github.com/nikitabobko/AeroSpace/issues/201
+                if focus.windowOrNil?.app.pid != app.pid {
+                    // Force focus to fix macOS annoyance with focused apps without windows.
+                    //   https://github.com/nikitabobko/AeroSpace/issues/65
+                    deadWindowFocus.windowOrNil?.nativeFocus()
+                }
             }
         }
     }
@@ -222,10 +232,28 @@ private func unbindAndGetBindingDataForNewTilingWindow(_ workspace: Workspace, w
     window?.unbindFromParent() // It's important to unbind to get correct data from below
     let mruWindow = workspace.mostRecentWindowRecursive
     if let mruWindow, let tilingParent = mruWindow.parent as? TilingContainer {
-        return BindingData(
+        // Auto-spiral (fibonacci/dwindle): instead of appending the new window next to the
+        // focused (MRU) window in its existing parent, wrap the MRU window in a fresh
+        // container split along its longer side, and place the new window beside it.
+        // Wide MRU window -> left/right split, tall MRU window -> top/bottom split.
+        // Requires 'enable-normalization-flatten-containers = false', otherwise these
+        // nested containers get collapsed away.
+        let orientation: Orientation = mruWindow.lastAppliedLayoutVirtualRect
+            .map { $0.width > $0.height ? Orientation.h : Orientation.v }
+            ?? tilingParent.orientation
+        let mruData = mruWindow.unbindFromParent()
+        let spiralContainer = TilingContainer(
             parent: tilingParent,
+            adaptiveWeight: mruData.adaptiveWeight,
+            orientation,
+            .tiles,
+            index: mruData.index,
+        )
+        mruWindow.bind(to: spiralContainer, adaptiveWeight: WEIGHT_AUTO, index: 0)
+        return BindingData(
+            parent: spiralContainer,
             adaptiveWeight: WEIGHT_AUTO,
-            index: mruWindow.ownIndex.orDie() + 1,
+            index: INDEX_BIND_LAST, // after the MRU window
         )
     } else {
         return BindingData(
