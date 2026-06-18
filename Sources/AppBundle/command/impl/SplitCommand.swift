@@ -23,6 +23,16 @@ struct SplitCommand: Command {
                     case .vertical: .v
                     case .horizontal: .h
                     case .opposite: parent.orientation.opposite
+                    // Auto-spiral: split along the focused window's longer side, so a
+                    // wide window splits left/right and a tall window splits top/bottom.
+                    // Fall back to the parent's opposite orientation if the window hasn't
+                    // been laid out yet (no known rect).
+                    case .auto:
+                        if let rect = window.lastAppliedLayoutVirtualRect {
+                            rect.width > rect.height ? .h : .v
+                        } else {
+                            parent.orientation.opposite
+                        }
                 }
                 if parent.children.count == 1 {
                     parent.changeOrientation(orientation)
