@@ -18,11 +18,17 @@ swiftly run swift build
 echo "==> Copying binaries into .debug/ ..."
 mkdir -p .debug
 cp .build/debug/aerospace .build/debug/AeroSpaceApp .debug/
+# Real copy inside the bundle (a symlinked executable makes the bundle unverifiable, so TCC ignores
+# the grant), signed with a stable designated requirement so the Accessibility grant survives rebuilds.
+app="$HOME/Applications/AeroSpaceDebug.app"
+rm -f "$app/Contents/MacOS/AeroSpaceApp"
+cp .debug/AeroSpaceApp "$app/Contents/MacOS/AeroSpaceApp"
+codesign -f -s - -i bobko.aerospace.debug -r='designated => identifier "bobko.aerospace.debug"' "$app"
 
 echo "==> Relaunching AeroSpaceDebug.app ..."
 killall AeroSpaceApp 2>/dev/null || true
 sleep 1
-open "$HOME/Applications/AeroSpaceDebug.app"
+open "$app"
 sleep 2
 
 echo "==> Status:"
